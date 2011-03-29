@@ -321,6 +321,8 @@ public class SolrSearchServlet extends SlingSafeMethodsServlet {
     Map<String, String> propertiesMap = loadProperties(request, propertyProviderName,
         queryNode);
 
+    escapeSolrSpecialCharsForPropertyQ(propertiesMap);
+
     String queryTemplate = queryNode.getProperty(SAKAI_QUERY_TEMPLATE).getString();
 
     // process the query string before checking for missing terms to a) give processors a
@@ -767,4 +769,17 @@ public class SolrSearchServlet extends SlingSafeMethodsServlet {
     return false;
   }
 
+  /**
+   * Escape solr special characters, so solr search will work correctly.
+   * eg replace ":" with "\:"
+   * @param propertiesMap
+   */
+  private void escapeSolrSpecialCharsForPropertyQ(Map<String, String> propertiesMap) {
+    // only modify q parameter in sakai template.
+    if (propertiesMap.containsKey("q")) {
+      String queryValue = propertiesMap.get("q");
+      queryValue = queryValue.replace(":", "\\:");
+      propertiesMap.put("q",queryValue);
+    }
+  }
 }

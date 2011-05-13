@@ -358,7 +358,22 @@ public class ProfileServiceImpl implements ProfileService {
     ContentManager contentManager = session.getContentManager();
     AccessControlManager accessControlManger = session.getAccessControlManager();
     LiteJsonImporter importer = new LiteJsonImporter();
-    importer.importContent(contentManager, json, profilePath, true, true,true, accessControlManger);
+
+    // update profile "Basic information" data
+    if (json.has("basic")) {
+      // remove /~userid/public/authprofile/basic branch from /~userid/public/authprofile
+      StorageClientUtils.deleteTree(contentManager, profilePath + "/basic");
+      // add new basic branch data to /~userid/public/authprofile
+      importer.importContent(contentManager, json, profilePath, true, true, false, accessControlManger);
+    }
+
+    // update profile "About me" data
+    if (json.has("aboutme")) {
+      // remove /~userid/public/authprofile/aboutme branch from /~userid/public/authprofile 
+      StorageClientUtils.deleteTree(contentManager, profilePath + "/aboutme");
+      // add new aboutme branch data to /~userid/public/authprofile
+      importer.importContent(contentManager, json, profilePath, true, true, false, accessControlManger);
+    }
 
   }
 }

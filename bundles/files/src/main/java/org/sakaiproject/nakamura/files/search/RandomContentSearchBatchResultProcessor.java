@@ -17,8 +17,9 @@
  */
 package org.sakaiproject.nakamura.files.search;
 
-import static org.sakaiproject.nakamura.api.search.solr.SolrSearchConstants.DEFAULT_PAGED_ITEMS;
 import static org.sakaiproject.nakamura.api.search.solr.SolrSearchConstants.PARAMS_ITEMS_PER_PAGE;
+
+import com.google.common.collect.Lists;
 
 import org.apache.felix.scr.annotations.Component;
 import org.apache.felix.scr.annotations.Properties;
@@ -28,6 +29,8 @@ import org.apache.felix.scr.annotations.Service;
 import org.apache.sling.api.SlingHttpServletRequest;
 import org.apache.sling.commons.json.JSONException;
 import org.apache.sling.commons.json.io.JSONWriter;
+import org.apache.sling.commons.osgi.OsgiUtil;
+import org.osgi.service.component.ComponentContext;
 import org.sakaiproject.nakamura.api.search.solr.Query;
 import org.sakaiproject.nakamura.api.search.solr.Result;
 import org.sakaiproject.nakamura.api.search.solr.SolrSearchBatchResultProcessor;
@@ -42,60 +45,28 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Dictionary;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
-@Component(immediate = true, metatype=true)
+@Component(inherit = true, metatype=true, immediate = true)
 @Properties(value = {
     @Property(name = "service.vendor", value = "The Sakai Foundation"),
     @Property(name = SolrSearchConstants.REG_BATCH_PROCESSOR_NAMES, value = "RandomContent")
 })
 @Service(value = SolrSearchBatchResultProcessor.class)
-public class RandomContentSearchBatchResultProcessor implements SolrSearchBatchResultProcessor {
+public class RandomContentSearchBatchResultProcessor extends LiteFileSearchBatchResultProcessor {
 
-  private int solrItemsMultipler = 4;
-  private int maximumSolrSearchResultSetSize = 16;
+
+  /*
+   * Increase the numbers of items the solr query returns by this amount.
+   */
+  @Property(name = "solrItemsMultiplier", intValue = 4)
+  private int solrItemsMultiplier;
+
   public static final Logger LOGGER = LoggerFactory
   .getLogger(RandomContentSearchBatchResultProcessor.class);
-
-  @Reference
-  protected SolrSearchServiceFactory searchServiceFactory;
-
-  /**
-   * The non component constructor
-   * @param searchServiceFactory
-   */
-  RandomContentSearchBatchResultProcessor(SolrSearchServiceFactory searchServiceFactory) {
-    if ( searchServiceFactory == null ) {
-      throw new IllegalArgumentException("Search Service Factory must be set when not using as a component");
-    }
-    this.searchServiceFactory = searchServiceFactory;
-  }
-
-
-  /**
-   * Component Constructor.
-   */
-  public RandomContentSearchBatchResultProcessor() {
-  }
-
-
-
-  public void writeResults(SlingHttpServletRequest request, JSONWriter write,
-      Iterator<Result> iterator) throws JSONException {
-
-
-    long nitems = SolrSearchUtil.longRequestParameter(request,
-        PARAMS_ITEMS_PER_PAGE, DEFAULT_PAGED_ITEMS);
-
-
-
-    for (long i = 0; i < nitems && iterator.hasNext(); i++) {
-      Result result = iterator.next();
-      ExtendedJSONWriter.writeValueMap(write,result.getProperties());
-    }
-  }
 
 
   public SolrSearchResultSet getSearchResultSet(SlingHttpServletRequest request, Query query) throws SolrSearchException {
@@ -107,16 +78,7 @@ public class RandomContentSearchBatchResultProcessor implements SolrSearchBatchR
     int originalItemsInt = Integer.parseInt(originalItems);
 
     // increase the number of items solr will return.
-    int newItemsInt = originalItemsInt * solrItemsMultipler;
-
-    // set upper limit for items that query is expected to return.
-    // as per jira kern-1998 set upper value to 16.
-    if (newItemsInt > maximumSolrSearchResultSetSize) {
-      newItemsInt = maximumSolrSearchResultSetSize;
-    }
-    // Note method "searchServiceFactory.getSearchResultSet(request, query)"
-    // ultimately sets the upper limit to defaultMaxResults (which is set to 100 in 
-    // SearchServiceFactoryImpl)
+    int newItemsInt = originalItemsInt * solrItemsMultiplier;
 
     // increase the maximum items returned by solr
     query.getOptions().put(PARAMS_ITEMS_PER_PAGE, Integer.toString(newItemsInt));
@@ -124,35 +86,33 @@ public class RandomContentSearchBatchResultProcessor implements SolrSearchBatchR
     // do the query
     SolrSearchResultSet rs = searchServiceFactory.getSearchResultSet(request, query);
 
-    // reduce the number of items to be returned by solr to its original value
-    query.getOptions().put(PARAMS_ITEMS_PER_PAGE, originalItems);
-
     // get all the results back from solr, and stuff into a List.
-    Iterator<Result> iterator = rs.getResultSetIterator();
-    List<Result> solrResults = new ArrayList<Result>();
+    List<Result> solrResults = Lists.newArrayList(rs.getResultSetIterator());
 
-    while (iterator.hasNext()) {
-      Result result = iterator.next();
-      solrResults.add(result);
-    }
-
-    // shuffle the results List
+    // randomise the results, by shuffling the List
     Collections.shuffle(solrResults);
 
-    // get the number of items originally requested (ie originalItemsInt) 
-    // from the shuffled list.  
-    List<Result> randomSolrResults = new ArrayList<Result>();
-    for(Result result : solrResults) {
-      randomSolrResults.add(result);
-      if (randomSolrResults.size() >= originalItemsInt ) {
-        break;
-      }
+    // reduce solr returned list size, to the originally asked for size.  
+    if(solrResults.size() > originalItemsInt) {
+      solrResults = solrResults.subList(0,originalItemsInt);
     }
 
     // create new SolrSearchResultSet object, to be returned by this method.
-    SolrSearchResultSet randomSolrResultSet = new RandomContentSolrSearchResultSetImpl(randomSolrResults);
+    SolrSearchResultSet randomSolrResultSet = new RandomContentSolrSearchResultSetImpl(solrResults);
 
     return randomSolrResultSet;
+  }
+
+  /**
+   * When the bundle gets activated we retrieve the OSGi properties.
+   *
+   * @param context
+   */
+  @SuppressWarnings("rawtypes")
+  protected void activate(ComponentContext context) {
+    // Get the properties from the console.
+    Dictionary props = context.getProperties();
+    solrItemsMultiplier = OsgiUtil.toInteger(props.get("solrItemsMultiplier"), 4);
   }
 
   // inner class, use by method getSearchResultSet(..),

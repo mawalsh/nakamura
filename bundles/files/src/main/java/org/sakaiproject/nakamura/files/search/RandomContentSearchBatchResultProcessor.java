@@ -50,7 +50,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
-@Component(inherit = true, metatype=true, immediate = true)
+@Component(inherit = true, metatype=true)
 @Properties(value = {
     @Property(name = "service.vendor", value = "The Sakai Foundation"),
     @Property(name = SolrSearchConstants.REG_BATCH_PROCESSOR_NAMES, value = "RandomContent")
@@ -106,12 +106,9 @@ public class RandomContentSearchBatchResultProcessor extends LiteFileSearchBatch
   /**
    * When the bundle gets activated we retrieve the OSGi properties.
    *
-   * @param context
+   * @param props
    */
-  @SuppressWarnings("rawtypes")
-  protected void activate(ComponentContext context) {
-    // Get the properties from the console.
-    Dictionary props = context.getProperties();
+  protected void activate(Map<?, ?> props) {
     solrItemsMultiplier = OsgiUtil.toInteger(props.get("solrItemsMultiplier"), 4);
   }
 

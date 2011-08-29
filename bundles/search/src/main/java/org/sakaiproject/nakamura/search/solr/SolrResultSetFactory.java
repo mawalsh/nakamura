@@ -17,6 +17,9 @@
  */
 package org.sakaiproject.nakamura.search.solr;
 
+import static org.sakaiproject.nakamura.api.search.solr.SolrSearchConstants.FILTER_QUERY;
+
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import org.apache.commons.lang.StringUtils;
@@ -217,10 +220,28 @@ import java.util.ArrayList;
   public SolrSearchResultSet processQuery(SlingHttpServletRequest request, Query query,
       boolean asAnon) throws SolrSearchException {
     try {
-      String queryString = query.getQueryString();
+      // Add reader restrictions to solr fq (filter query) parameter,
+      // to prevent "reader restrictions" from affecting the solr score
+      // of a document.
+      Map<String, String> originalQueryOptions = query.getOptions();
+      Map<String, String> queryOptions = Maps.newHashMap();
+      String filterQuery = null;
+
+      if (originalQueryOptions != null) {
+        // copy from originalQueryOptions in case its backed by a ImmutableMap,
+        // which prevents saving of filter query changes.
+        queryOptions.putAll(originalQueryOptions);
+        if (queryOptions.get(FILTER_QUERY) != null && queryOptions.get(FILTER_QUERY).length() > 0) {
+          filterQuery = queryOptions.get(FILTER_QUERY);
+        }
+      }
       // apply readers restrictions.
       if (asAnon) {
-        queryString = "(" + queryString + ")  AND readers:" + User.ANON_USER;
+        if (filterQuery == null) {
+          filterQuery = "readers:" + User.ANON_USER;
+        } else {
+          filterQuery = "(" + filterQuery + ")  AND readers:" + User.ANON_USER;
+        }
       } else {
         Session session = StorageClientUtils.adaptToSession(request.getResourceResolver().adaptTo(javax.jcr.Session.class));
         if (!User.ADMIN_USER.equals(session.getUserId())) {
@@ -231,16 +252,23 @@ import java.util.ArrayList;
             readers.add(SearchUtil.escapeString(gi.next().getId(), Query.SOLR));
           }
           readers.add(session.getUserId());
-          queryString = "(" + queryString + ") AND readers:(" + StringUtils.join(readers," OR ") + ")";
+          if (filterQuery == null) {
+            filterQuery = "readers:(" + StringUtils.join(readers," OR ") + ")";
+          } else {
+            filterQuery = "(" + filterQuery + ") AND readers:(" + StringUtils.join(readers," OR ") + ")";
+          }
         }
       }
+      // save filterQuery changes
+      queryOptions.put(FILTER_QUERY, filterQuery);
 
+      String queryString = query.getQueryString();
       List<String> deletedPaths = getDeletedPaths();
       if (!deletedPaths.isEmpty()) {
         queryString = "(" + queryString + ") AND -path:(" + StringUtils.join(deletedPaths, " OR ") + ")";
       }
 
-      SolrQuery solrQuery = buildQuery(request, queryString, query.getOptions());
+      SolrQuery solrQuery = buildQuery(request, queryString, queryOptions);
 
       SolrServer solrServer = solrSearchService.getServer();
       if ( LOGGER.isDebugEnabled()) {
